@@ -1,23 +1,12 @@
-import time
 import edgeiq
-"""
-Use object detection to detect objects in the frame in realtime. The
-types of objects detected can be changed by selecting different models.
-
-To change the computer vision model, follow this guide:
-https://dashboard.alwaysai.co/docs/application_development/changing_the_model.html
-
-To change the engine and accelerator, follow this guide:
-https://dashboard.alwaysai.co/docs/application_development/changing_the_engine_and_accelerator.html
-
-To install app dependencies in the runtime container, list them in the requirements.txt file.
-"""
 
 
 def main():
-    obj_detect = edgeiq.ObjectDetection(
-            "alwaysai/mobilenet_ssd")
-    obj_detect.load(engine=edgeiq.Engine.DNN)
+    obj_detect = edgeiq.ObjectDetection("alwaysai/mobilenet_ssd")
+    if edgeiq.is_jetson():
+        obj_detect.load(engine=edgeiq.Engine.DNN_CUDA)
+    else:
+        obj_detect.load(engine=edgeiq.Engine.DNN)
 
     print("Loaded model:\n{}\n".format(obj_detect.model_id))
     print("Engine: {}".format(obj_detect.engine))
@@ -27,16 +16,21 @@ def main():
     fps = edgeiq.FPS()
 
     try:
-        with edgeiq.WebcamVideoStream(cam=0) as video_stream, \
-                edgeiq.Streamer() as streamer:
-            # Allow Webcam to warm up
-            time.sleep(2.0)
+        with edgeiq.FileVideoStream(
+                "crosswalk.m4v", play_realtime=True) as video_stream, \
+                        edgeiq.Streamer() as streamer:
             fps.start()
 
             # loop detection
             while True:
-                frame = video_stream.read()
+                try:
+                    frame = video_stream.read()
+                except edgeiq.NoMoreFrames:
+                    # Restart video when it ends
+                    video_stream.start()
+                    continue
                 results = obj_detect.detect_objects(frame, confidence_level=.5)
+
                 frame = edgeiq.markup_image(
                         frame, results.predictions, colors=obj_detect.colors)
 
